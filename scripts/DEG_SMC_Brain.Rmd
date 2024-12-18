@@ -1,0 +1,275 @@
+---
+title: "SMC Brain snRNA DEG MAST"
+author: Beomjin Jang (beomjin.jang@skku.edu)
+date : Dec 2024
+output:
+  rmarkdown::html_document:
+   theme: cerulean
+   highlight: kate
+   code_folding: hide
+   toc: true
+   toc_float: true
+   df_print: paged
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+
+---
+
+# Load data
+```{r}
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(dplyr)
+  library(tidyverse)
+  library(SingleCellExperiment)
+  library(stringr)
+  library(MAST)
+  library(muscat)
+  library(DESeq2)
+  library(data.table)
+ })
+
+```
+
+
+# Data converting from scanpy to Seurat
+```{r}
+dataset <- 'SMC_Brain'
+assay_name <- 'RNA'
+```
+
+```{r}
+  df_meta <- fread(file=paste0(path_dir, "/data/seurat/metadata.csv"))  %>% as.data.frame()
+  row.names(df_meta) <- df_meta$V1
+  df_meta <- df_meta %>% dplyr::select(-V1)
+  df_meta <- df_meta %>% dplyr::rename(Age_at_death = 'Age at death'
+                    )
+
+  data_10x <- ReadMtx(
+    mtx =  paste0(path_dir, '/data/seurat/matrix.mtx.gz'),
+    features = paste0(path_dir, "/data/seurat/features.tsv.gz"),
+    cells = paste0(path_dir,  "/data/seurat/barcodes.tsv.gz")
+  )
+
+  data.seurat <- CreateSeuratObject(counts = data_10x, meta.data = df_meta)
+  saveRDS(data.seurat, file = paste0(path_dir,  '/data/seurat/',dataset,'.rds'))
+  
+```
+
+
+# MAST(single-cell)
+```{r}
+dataset <- 'SMC_Brain'
+assay_name <- 'RNA'
+```
+
+
+```{r}
+data.seurat <- readRDS(paste0(path_dir,  '/data/seurat/',dataset,'.rds')) # , col.names=TRUE
+data.seurat@meta.data$Clabel <- gsub("Low",0,data.seurat@meta.data$Clabel)
+data.seurat@meta.data$Clabel <- gsub("High",1,data.seurat@meta.data$Clabel)
+
+data.seurat@meta.data$C <- gsub("C","",data.seurat@meta.data$C)
+data.seurat@meta.data$C <- gsub("C","",data.seurat@meta.data$C)
+
+data.seurat@meta.data$Sex <- gsub("F",1,data.seurat@meta.data$Sex)
+data.seurat@meta.data$Sex <- gsub("M",0,data.seurat@meta.data$Sex)
+
+```
+
+# Convert to SCE
+```{r}
+celltype <- 'MG'
+seurat <- subset(data.seurat, subset = mainclass_label == celltype)
+
+# Extract raw counts and metadata to create SingleCellExperiment object
+# counts <- seurat@assays$RNA@counts 
+
+metadata <- seurat@meta.data
+
+# Set up metadata as desired for aggregation and DE analysis
+metadata$cluster_id <- factor(seurat@active.ident)
+
+# Create single cell experiment object
+sce <- SingleCellExperiment(assays = list(counts = seurat@assays$RNA@counts), 
+                           colData = metadata)
+
+
+print(dim(sce))
+
+sce <- sce[rowSums(counts(sce) > 0) > 0, ]
+print(dim(sce))
+
+sce <- sce[rowSums(counts(sce) > 1) >= 10, ]
+print(dim(sce))
+
+(sce <- prepSCE(sce, 
+    kid = "mainclass_label", # subpopulation assignments
+    gid = "Diagnosis",  # group IDs (ctrl/stim)
+    sid = "individualID",   # sample IDs (ctrl/stim.1234)
+    drop = FALSE))  # drop all other colData columns
+
+```
+
+# create a MAST object
+```{r}
+sca <- MAST::SceToSingleCellAssay(sce, class = "SingleCellAssay", check_sanity = FALSE) 
+print("Dimensions before subsetting:")
+print(dim(sca))
+print("")
+    
+# keep genes that are expressed in more than 10% of all cells
+sca <- sca[MAST::freq(sca)>0.1,]
+print("Dimensions after subsetting:")
+print(dim(sca))
+print("")
+```
+
+# Data setting
+```{r}
+#counts
+cdr2 <- colSums(SummarizedExperiment::assay(sca)>0)
+SummarizedExperiment::colData(sca)$ngeneson <- scale(cdr2)
+
+#label( e.g. control(0) vs case(1) )
+label <- as.numeric(SummarizedExperiment::colData(sca)$Clabel)
+
+#label <- relevel(Clabel,0)
+SummarizedExperiment::colData(sca)$Status <-label
+
+#sample ID or individual ID 
+SummarizedExperiment::colData(sca)$DonorID <-
+factor(SummarizedExperiment::colData(sca)$sample_id)
+
+# covariates 
+SummarizedExperiment::colData(sca)$age <-
+as.numeric(SummarizedExperiment::colData(sca)$Age_at_death)
+SummarizedExperiment::colData(sca)$sex <- 
+as.numeric(SummarizedExperiment::colData(sca)$Sex)
+SummarizedExperiment::colData(sca)$batch <- 
+as.numeric(SummarizedExperiment::colData(sca)$batch)
+
+```
+
+# Run MAST
+```{r}
+zlmCond <- MAST::zlm(~ ngeneson +batch + age + sex + Status + (1 | DonorID),
+                                            sca, method='glmer',ebayes = F,
+                                            strictConvergence = FALSE,
+                                            fitArgsD=list(nAGQ = 0)
+                     )
+                                                                                 
+
+summaryCond <- MAST::summary(zlmCond, doLRT='Status')
+
+summaryDt <- summaryCond$datatable
+fcHurdle <- merge(summaryDt[summaryDt$contrast=='Status'
+                                  & summaryDt$component=='logFC', c(1,7,5,6,8)],
+                        summaryDt[summaryDt$contrast=='Status'
+                                  & summaryDt$component=='H', c(1,4)],
+                        by = 'primerid')
+
+fcHurdle <- stats::na.omit(as.data.frame(fcHurdle))
+
+fcHurdle$logFC <- fcHurdle$coef/log(2)
+```
+
+# do multi'ple testing correction
+```{r}
+fcHurdle$FDR <- p.adjust(fcHurdle$`Pr(>Chisq)`, 'fdr')
+fcHurdle
+
+label <- 'Clabel'
+tool <- 'MAST'
+filename <- paste0(path_dir,'/deg/DEG_',label,'_',celltype,'_',tool,'.csv' )
+print(filename)
+write.csv(fcHurdle,
+          file=filename,
+          row.names=FALSE
+          )
+
+filename <- paste0(path_dir,'/deg/DEG_',label,'_',celltype,'_',tool,'_total.csv' )
+print(filename)
+write.csv(summaryDt,
+          file=filename,
+          row.names=FALSE
+          )
+```
+
+# Type 1 Error check
+```{r}
+pval <- 0.05
+signif <- ifelse(fcHurdle[,6] < pval, 1, 0)
+rate <- mean(signif)
+message(paste0("Type 1 error for ",pval," is: ", rate))
+```
+
+
+# Box plot
+```{r}
+dataset <- 'SMC_Brain'
+assay_name <- 'RNA'
+```
+
+
+```{r}
+data.seurat <- readRDS(paste0(path_dir,  '/data/seurat/',dataset,'.rds')) # , col.names=TRUE
+
+data.seurat@meta.data$Clabel <- gsub("Low",0,data.seurat@meta.data$Clabel)
+data.seurat@meta.data$Clabel <- gsub("High",1,data.seurat@meta.data$Clabel)
+
+data.seurat@meta.data$C <- gsub("C","",data.seurat@meta.data$C)
+data.seurat@meta.data$C <- gsub("C","",data.seurat@meta.data$C)
+
+```
+
+
+```{r}
+gene1<- FetchData(data.seurat, vars = "SORL1") 
+head(gene1)
+
+df_tmp <- data.seurat@meta.data
+df <- merge(gene1, df_tmp, by = "row.names")
+df_box <- df %>% dplyr::filter(SORL1!=0) %>% 
+  dplyr::filter(mainclass_label!='Per')  
+head(df_box)
+
+df_box
+```
+
+
+```{r}
+df_box_summary <- df_box %>% group_by(mainclass_label, Clabel) %>%
+  summarize(min=min(SORL1),
+            q1=quantile(SORL1,probs=0.25),
+            median=median(SORL1),
+            q3=quantile(SORL1,probs=0.75),
+            max=max(SORL1),
+
+            )
+
+df_box_summary$InterQuartileRange <- df_box_summary$q3 - df_box_summary$q1
+df_box_summary
+```
+
+
+```{r}
+cols <- c('0' = "#b2df8a", '1' = "#33a02c")
+df_box$mainclass_label <- factor(df_box$mainclass_label, 
+                                 levels=c('MG', 'OD', 'IN', 'OPC', 'End', 'Ast', 'Ext')
+                                 )
+
+p <- ggplot(df_box, aes(x=mainclass_label, y=SORL1, fill=Clabel)) + 
+  geom_boxplot() + 
+  scale_fill_manual(values = cols) +
+  ylab("SORL1 (log(UMI count + 1)") +
+  xlab('') +
+    theme_classic() +
+  ggtitle('Amyloid PET') 
+  
+show(p)
+```
+
+
+# End
