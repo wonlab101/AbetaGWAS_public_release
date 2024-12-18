@@ -2,7 +2,7 @@
 
 > This repository includes code and plots. Exploratory analysis and intermediate processing files are too large for this repository.
 
-> The summary statistic are available from Zendo at [link]. 
+> The summary statistic are available from Zenodo at [link]. 
 
 ## Description
 
