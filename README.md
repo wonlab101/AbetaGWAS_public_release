@@ -10,7 +10,7 @@
 
 
 <p align="center">
-  <img src="/figures/manhattan_plot.pdf" width="100" />
+  <img src="github.com/wonlab101/AbetaGWAS_public_release/figures/manhattan_plot.pdf" width="100" />
 </p>
 
 ## scripts
@@ -23,7 +23,7 @@
 
 ## Authors
 
-Contributors names and contact info
+> Contributors names and contact info
 
 - Hong-Hee Won (wonhh@skku.edu)
 
@@ -34,7 +34,6 @@ Contributors names and contact info
 
 ## Acknowledgments
 
-Inspiration, code snippets, etc.
 * [hail](https://github.com/hail-is/hail)
 * [METAL](https://genome.sph.umich.edu/wiki/METAL_Documentation)
 * [COLOC](https://github.com/chr1swallace/coloc)
