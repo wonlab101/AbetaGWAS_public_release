@@ -1,4 +1,4 @@
-# Cross-ancestry GWAS for beta-amyloid deposition
+# AbetaGWAS_public_release
 
 > This repository includes code and plots. Exploratory analysis and intermediate processing files are too large for this repository.
 
