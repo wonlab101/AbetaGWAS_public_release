@@ -21,6 +21,9 @@
  <img src="figures/Figure4.png", width=500>
 </p>
 
+## COLOC
+> This script is part of the pipeline [downstream-QTL](https://github.com/RajLabMSSM/downstream-QTL.git).
+
 ## Authors
 
 > Contributors names and contact info
