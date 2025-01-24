@@ -2,7 +2,7 @@
 
 > This repository includes code and plots. Exploratory analysis and intermediate processing files are too large for this repository.
 
-> The summary statistics are available from Zenodo at [link]. 
+> The full summary statistics of Korean Aβ GWAS (stage 1) are publicly available at the NHGRI-EBI GWAS Catalog under the accession number GCST90483382 [Korean Aβ GWAS](https://www.ebi.ac.uk/gwas/studies/GCST90483382).
 
 ## Description
 
